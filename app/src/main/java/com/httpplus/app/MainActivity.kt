@@ -45,7 +45,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                Surface(Modifier.fillMaxWidth()) { Screen() }
+                Surface(Modifier.fillMaxWidth()) {
+                    var page by remember { mutableStateOf("main") }
+                    var imported by remember { mutableStateOf<Config?>(null) }
+                    if (page == "web") WebScreen(
+                        onBack = { page = "main" },
+                        onCapture = { c -> imported = c; page = "main" }
+                    ) else Screen(imported, { imported = null }, { page = "web" })
+                }
             }
         }
     }
@@ -65,7 +72,7 @@ private fun localAddresses(): List<String> {
 }
 
 @Composable
-private fun Screen() {
+private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var cfg by remember { mutableStateOf(Store.load(ctx)) }
     var portText by remember { mutableStateOf(cfg.port.toString()) }
@@ -73,6 +80,12 @@ private fun Screen() {
     var addrs by remember { mutableStateOf(localAddresses()) }
     var msg by remember { mutableStateOf("") }
     val ui by Bus.state.collectAsState()
+
+    if (imported != null) {
+        cfg = imported; portText = imported.port.toString()
+        msg = "Cuenta capturada de la página"
+        onImportedUsed()
+    }
 
     val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -138,6 +151,7 @@ private fun Screen() {
             }) { Text("Importar del portapapeles") }
             OutlinedButton(onClick = { Store.save(ctx, current()); msg = "Guardado" }) { Text("Guardar") }
         }
+        OutlinedButton(onClick = { Store.save(ctx, current()); onWeb() }, Modifier.fillMaxWidth()) { Text("Crear cuenta SSH gratis (abrir página)") }
 
         if (!ui.running) {
             Button(onClick = {

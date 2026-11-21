@@ -72,8 +72,8 @@ fun parseImport(text: String, base: Config): Config? {
         val k = line.substring(0, i).trim().lowercase()
         val v = line.substring(i + 1).trim()
         when (k) {
-            "host", "servidor", "server" -> { c = c.copy(host = v); found = true }
-            "puerto", "port" -> { v.toIntOrNull()?.let { c = c.copy(port = it); found = true } }
+            "host", "servidor", "server", "hostname", "ip", "ip address", "host/ip", "host ip", "ssh host" -> { c = c.copy(host = v); found = true }
+            "puerto", "port", "ssl/tls port", "ssl port", "tls port", "ssh port" -> { v.toIntOrNull()?.let { c = c.copy(port = it); found = true } }
             "usuario", "user", "username" -> { c = c.copy(user = v); found = true }
             "contrasena", "contraseña", "pass", "password", "clave" -> { c = c.copy(pass = v); found = true }
             "sni" -> { c = c.copy(sni = v); found = true }
