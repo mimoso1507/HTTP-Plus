@@ -13,7 +13,8 @@ data class Config(
     val proxyPort: Int = 38417,
     val blockAds: Boolean = false,
     val blockAdult: Boolean = false,
-    val customBlock: String = ""       // dominios extra separados por coma
+    val customBlock: String = "",      // dominios extra separados por coma
+    val vpn: Boolean = false           // true = VPN para todas las apps del teléfono
 )
 
 object Store {
@@ -32,7 +33,8 @@ object Store {
             proxyPort = s.getInt("proxyPort", 38417),
             blockAds = s.getBoolean("blockAds", false),
             blockAdult = s.getBoolean("blockAdult", false),
-            customBlock = s.getString("customBlock", "") ?: ""
+            customBlock = s.getString("customBlock", "") ?: "",
+            vpn = s.getBoolean("vpn", false)
         )
     }
 
@@ -42,7 +44,7 @@ object Store {
             .putString("user", c.user).putString("pass", c.pass).putString("sni", c.sni)
             .putString("dns", c.dns).putInt("proxyPort", c.proxyPort)
             .putBoolean("blockAds", c.blockAds).putBoolean("blockAdult", c.blockAdult)
-            .putString("customBlock", c.customBlock)
+            .putString("customBlock", c.customBlock).putBoolean("vpn", c.vpn)
             .apply()
     }
 }

@@ -122,6 +122,17 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
 
     val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    fun launchService() {
+        if (Build.VERSION.SDK_INT >= 33) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+        ctx.startForegroundService(Intent(ctx, TunnelService::class.java))
+        addrs = localAddresses()
+        msg = ""
+    }
+    val vpnPerm = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        if (r.resultCode == android.app.Activity.RESULT_OK) launchService() else msg = "Sin permiso de VPN: no se inició"
+    }
+
+
     fun current(): Config = cfg.copy(
         port = portText.toIntOrNull() ?: 443,
         proxyPort = (proxyText.toIntOrNull() ?: 38417).coerceIn(1024, 65535)
@@ -140,6 +151,8 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
 
         if (ui.running) {
             Text("↑ ${fmtSpeed(ui.upBps)}     ↓ ${fmtSpeed(ui.downBps)}", style = MaterialTheme.typography.titleLarge)
+            if (ui.vpnOn) Text("VPN activa: todas las apps del teléfono usan el túnel", style = MaterialTheme.typography.bodySmall)
+            if (ui.udpCount > 0) Text("UDP/QUIC rechazado: ${ui.udpCount} intentos (no pasa por el túnel)", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             Text("Esta conexión:  subida ${fmtBytes(ui.upTotal)}  ·  bajada ${fmtBytes(ui.downTotal)}")
         }
 
@@ -164,6 +177,9 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
             cfg.dns, { cfg = cfg.copy(dns = it.trim()) }, Modifier.fillMaxWidth(),
             label = { Text("DNS (IP, opcional; se consulta por el túnel)") }, singleLine = true
         )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(cfg.vpn, { cfg = cfg.copy(vpn = it) }); Text("Modo VPN (todas las apps de este teléfono)")
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(cfg.blockAds, { cfg = cfg.copy(blockAds = it) }); Text("Bloquear anuncios")
         }
@@ -196,10 +212,10 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
                 val c = current()
                 if (c.host.isBlank() || c.user.isBlank()) { msg = "Falta el host o el usuario"; return@Button }
                 Store.save(ctx, c)
-                if (Build.VERSION.SDK_INT >= 33) notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
-                ctx.startForegroundService(Intent(ctx, TunnelService::class.java))
-                addrs = localAddresses()
-                msg = ""
+                if (c.vpn) {
+                    val i = android.net.VpnService.prepare(ctx)
+                    if (i != null) vpnPerm.launch(i) else launchService()
+                } else launchService()
             }, Modifier.fillMaxWidth()) { Text("Conectar") }
         } else {
             Button(onClick = {

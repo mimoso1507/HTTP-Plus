@@ -177,6 +177,7 @@ class ProxyServer(private val port: Int, private val tunnel: SshTunnel, private 
         out.write(byteArrayOf(5, 0)); out.flush()         // sin autenticación
         val r = readN(inp, 4)
         if (r[0].toInt() != 5 || r[1].toInt() != 1) {     // solo CONNECT
+            if (r[1].toInt() == 3) Bus.udpAttempt()          // UDP ASSOCIATE: alguien quiere usar UDP/QUIC
             out.write(byteArrayOf(5, 7, 0, 1, 0, 0, 0, 0, 0, 0)); return
         }
         val host = when (r[3].toInt()) {

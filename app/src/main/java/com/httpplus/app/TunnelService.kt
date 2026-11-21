@@ -7,21 +7,77 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.VpnService
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
+import hev.htproxy.TProxyService
+import java.io.File
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.wifi.WifiManager
 import android.os.PowerManager
 
 /** Servicio en primer plano: mantiene el túnel SSH (con reconexión) y el proxy local. */
-class TunnelService : Service() {
+class TunnelService : VpnService() {
+    private val hev by lazy { TProxyService() }
+    private var vpnPfd: ParcelFileDescriptor? = null
+    @Volatile private var lastUdpAlert = 0L
     @Volatile private var worker: Thread? = null
     private var wake: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var netCb: ConnectivityManager.NetworkCallback? = null
     @Volatile private var tunnelRef: SshTunnel? = null
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder? = super.onBind(intent)
+
+    private fun startVpn(cfg: Config) {
+        if (vpnPfd != null) return
+        if (!TProxyService.loaded) { Bus.log("Motor VPN no disponible en este APK; sigue el proxy"); return }
+        try {
+            val b = Builder().setSession("HTTP Plus").setMtu(1500)
+                .addAddress("198.18.0.1", 32).addAddress("fc00::1", 128)
+                .addRoute("0.0.0.0", 0).addRoute("::", 0)
+                .addDnsServer("198.18.0.2")
+            try { b.addDisallowedApplication(packageName) } catch (_: Exception) {}   // la propia app sale directo, si no se haría un bucle
+            val pfd = b.establish() ?: throw java.io.IOException("VPN no autorizada")
+            val yml = "tunnel:\n  mtu: 1500\n  ipv4: 198.18.0.1\n  ipv6: 'fc00::1'\n" +
+                "socks5:\n  port: ${cfg.proxyPort}\n  address: 127.0.0.1\n  udp: 'udp'\n" +
+                "mapdns:\n  address: 198.18.0.2\n  port: 53\n  network: 100.64.0.0\n  netmask: 255.192.0.0\n  cache-size: 10000\n" +
+                "misc:\n  log-level: warn\n"
+            val f = File(filesDir, "tun.yml")
+            f.writeText(yml)
+            if (!hev.TProxyStartService(f.absolutePath, pfd.fd)) { pfd.close(); throw java.io.IOException("el motor VPN no arrancó") }
+            vpnPfd = pfd
+            Bus.setVpn(true)
+            Bus.log("VPN activa: todas las apps salen por el túnel")
+        } catch (e: Throwable) {
+            Bus.log("VPN: ${e.message ?: e.javaClass.simpleName}")
+        }
+    }
+
+    private fun stopVpn() {
+        try { if (vpnPfd != null) hev.TProxyStopService() } catch (_: Throwable) {}
+        try { vpnPfd?.close() } catch (_: Exception) {}
+        vpnPfd = null
+        Bus.setVpn(false)
+    }
+
+    private fun udpAlert() {
+        val now = System.currentTimeMillis()
+        if (now - lastUdpAlert < 60000) return
+        lastUdpAlert = now
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel("alert", "Avisos", NotificationManager.IMPORTANCE_HIGH))
+        val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        nm.notify(2, Notification.Builder(this, "alert")
+            .setContentTitle("UDP / QUIC detectado")
+            .setContentText("Una app o equipo intentó usar UDP o QUIC. No pasa por el túnel y se rechazó.")
+            .setStyle(Notification.BigTextStyle().bigText("Una app o equipo intentó usar UDP o QUIC (llamadas, juegos, algunos videos). El túnel SSH solo lleva TCP, así que se rechazó; la mayoría de apps reintenta por TCP."))
+            .setSmallIcon(android.R.drawable.stat_sys_warning)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build())
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -41,6 +97,7 @@ class TunnelService : Service() {
                 wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "httpplus:wifi").also { it.acquire() }
             } catch (_: Exception) {}
             watchNetwork()
+            Bus.udpListener = { udpAlert() }
             Bus.set(running = true, connected = false, status = "Conectando...")
             worker = Thread { run(cfg) }.also { it.isDaemon = true; it.start() }
         }
@@ -102,6 +159,7 @@ class TunnelService : Service() {
                         rec = Rec(System.currentTimeMillis(), cfg.host, System.currentTimeMillis(), 0, 0, 0)
                         saveRec(false)
                         Bus.log("Túnel SSH conectado")
+                        if (cfg.vpn) startVpn(cfg)
                         notify("Conectado - proxy puerto ${cfg.proxyPort}")
                         delay = 2000L
                     } catch (e: Exception) {
@@ -130,6 +188,8 @@ class TunnelService : Service() {
             Bus.log("Error del proxy: ${e.message}")
         } finally {
             saveRec(true)
+            stopVpn()
+            Bus.udpListener = null
             proxy?.stop()
             tunnel.close()
             Bus.setStats(0, 0, 0, 0)
