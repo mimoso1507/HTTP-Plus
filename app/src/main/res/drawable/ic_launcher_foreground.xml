@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- anillo del tunel -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#4FD1C5"
+        android:strokeWidth="4"
+        android:pathData="M54,26 A28,28 0 1,0 54.01,26 Z" />
+    <!-- signo + -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,34 H60 V48 H74 V60 H60 V74 H48 V60 H34 V48 H48 Z" />
+</vector>
