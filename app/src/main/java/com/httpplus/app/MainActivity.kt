@@ -124,7 +124,7 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
 
     fun current(): Config = cfg.copy(
         port = portText.toIntOrNull() ?: 443,
-        proxyPort = (proxyText.toIntOrNull() ?: 8080).coerceIn(1024, 65535)
+        proxyPort = (proxyText.toIntOrNull() ?: 38417).coerceIn(1024, 65535)
     )
 
     Column(
@@ -217,12 +217,12 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
 
         Text("Compartir internet", style = MaterialTheme.typography.titleMedium)
         Text(
-            "En el otro dispositivo, en su WiFi, pon el proxy manual con una de estas IP y el puerto ${proxyText.ifEmpty { "8080" }} " +
+            "En el otro dispositivo, en su WiFi, pon el proxy manual con una de estas IP y el puerto ${proxyText.ifEmpty { "38417" }} " +
                 "(HTTP o SOCKS5). Activa antes tu punto de acceso o conecta ambos a la misma red.",
             style = MaterialTheme.typography.bodySmall
         )
         OutlinedButton(onClick = { addrs = localAddresses() }) { Text("Actualizar IP") }
-        if (addrs.isEmpty()) Text("Sin red activa") else addrs.forEach { Text("$it  :  ${proxyText.ifEmpty { "8080" }}") }
+        if (addrs.isEmpty()) Text("Sin red activa") else addrs.forEach { Text("$it  :  ${proxyText.ifEmpty { "38417" }}") }
 
         Text("Historial de conexiones", style = MaterialTheme.typography.titleMedium)
         if (hist.isEmpty()) Text("(sin registros)", style = MaterialTheme.typography.bodySmall)

@@ -10,7 +10,7 @@ data class Config(
     val pass: String = "",
     val sni: String = "",
     val dns: String = "",              // IP del DNS (se consulta por el túnel); vacío = lo resuelve el servidor SSH
-    val proxyPort: Int = 8080,
+    val proxyPort: Int = 38417,
     val blockAds: Boolean = false,
     val blockAdult: Boolean = false,
     val customBlock: String = ""       // dominios extra separados por coma
@@ -29,7 +29,7 @@ object Store {
             pass = s.getString("pass", "") ?: "",
             sni = s.getString("sni", "") ?: "",
             dns = s.getString("dns", "") ?: "",
-            proxyPort = s.getInt("proxyPort", 8080),
+            proxyPort = s.getInt("proxyPort", 38417),
             blockAds = s.getBoolean("blockAds", false),
             blockAdult = s.getBoolean("blockAdult", false),
             customBlock = s.getString("customBlock", "") ?: ""
