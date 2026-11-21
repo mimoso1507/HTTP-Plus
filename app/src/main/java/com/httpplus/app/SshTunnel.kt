@@ -36,6 +36,7 @@ private class TlsSocketFactory(private val sni: String) : SocketFactory {
     override fun createSocket(host: String, port: Int): Socket {
         val raw = Socket()
         raw.tcpNoDelay = true
+        raw.keepAlive = true
         raw.connect(InetSocketAddress(host, port), 15000)
         val ctx = SSLContext.getInstance("TLS")
         ctx.init(null, arrayOf<TrustManager>(trustAll), null)
@@ -55,8 +56,21 @@ private class TlsSocketFactory(private val sni: String) : SocketFactory {
     override fun getOutputStream(socket: Socket): OutputStream = socket.getOutputStream()
 }
 
+private class PlainSocketFactory : SocketFactory {
+    override fun createSocket(host: String, port: Int): Socket {
+        val raw = Socket()
+        raw.tcpNoDelay = true
+        raw.keepAlive = true
+        raw.connect(InetSocketAddress(host, port), 15000)
+        return raw
+    }
+    override fun getInputStream(socket: Socket): InputStream = socket.getInputStream()
+    override fun getOutputStream(socket: Socket): OutputStream = socket.getOutputStream()
+}
+
 class SshTunnel(private val cfg: Config) {
     @Volatile private var session: Session? = null
+    @Volatile private var openFails = 0
 
     fun connect() {
         close()
@@ -65,24 +79,37 @@ class SshTunnel(private val cfg: Config) {
         s.setPassword(cfg.pass)
         s.setConfig("StrictHostKeyChecking", "no")
         s.setConfig("PreferredAuthentications", "password,keyboard-interactive")
-        s.setServerAliveInterval(20000)
+        s.setServerAliveInterval(10000)
         s.setServerAliveCountMax(3)
-        if (cfg.mode == "ssl") s.setSocketFactory(TlsSocketFactory(cfg.sni))
+        s.setSocketFactory(if (cfg.mode == "ssl") TlsSocketFactory(cfg.sni) else PlainSocketFactory())
         s.connect(20000)
         session = s
     }
 
     fun isAlive(): Boolean = session?.isConnected == true
 
+    /** Mensaje de mantenimiento: si el servidor no responde, se cierra para que el servicio reconecte. */
+    fun ping() {
+        val s = session ?: return
+        try { s.sendKeepAliveMsg() } catch (_: Exception) { close() }
+    }
+
     fun open(host: String, port: Int): TunnelConn {
         val s = session ?: throw IOException("sin túnel")
-        val ch = s.openChannel("direct-tcpip") as ChannelDirectTCPIP
-        val input = ch.inputStream
-        val output = ch.outputStream
-        ch.setHost(host)
-        ch.setPort(port)
-        ch.connect(15000)
-        return TunnelConn(ch, input, output)
+        try {
+            val ch = s.openChannel("direct-tcpip") as ChannelDirectTCPIP
+            val input = ch.inputStream
+            val output = ch.outputStream
+            ch.setHost(host)
+            ch.setPort(port)
+            ch.connect(15000)
+            openFails = 0
+            return TunnelConn(ch, input, output)
+        } catch (e: Exception) {
+            // Si el servidor cerró el túnel sin avisar, varios fallos seguidos fuerzan la reconexión
+            if (!s.isConnected || ++openFails >= 4) { openFails = 0; close() }
+            throw e
+        }
     }
 
     fun close() {

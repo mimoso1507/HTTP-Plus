@@ -168,6 +168,13 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
                 ctx.startService(Intent(ctx, TunnelService::class.java).setAction(TunnelService.ACTION_STOP))
             }, Modifier.fillMaxWidth()) { Text("Detener") }
         }
+        OutlinedButton(onClick = {
+            try {
+                ctx.startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:" + ctx.packageName)))
+            } catch (_: Exception) {
+                ctx.startActivity(Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }, Modifier.fillMaxWidth()) { Text("Evitar que Android cierre la app (batería)") }
         if (msg.isNotEmpty()) Text(msg, color = MaterialTheme.colorScheme.primary)
 
         Text("Compartir internet", style = MaterialTheme.typography.titleMedium)

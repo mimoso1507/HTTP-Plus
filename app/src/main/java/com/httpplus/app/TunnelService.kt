@@ -8,12 +8,18 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.wifi.WifiManager
 import android.os.PowerManager
 
 /** Servicio en primer plano: mantiene el túnel SSH (con reconexión) y el proxy local. */
 class TunnelService : Service() {
     @Volatile private var worker: Thread? = null
     private var wake: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var netCb: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var tunnelRef: SshTunnel? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -29,16 +35,45 @@ class TunnelService : Service() {
             val cfg = Store.load(this)
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "httpplus:tunnel").also { it.acquire() }
+            try {
+                val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                @Suppress("DEPRECATION")
+                wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "httpplus:wifi").also { it.acquire() }
+            } catch (_: Exception) {}
+            watchNetwork()
             Bus.set(running = true, connected = false, status = "Conectando...")
             worker = Thread { run(cfg) }.also { it.isDaemon = true; it.start() }
         }
-        return START_NOT_STICKY
+        return START_STICKY      // si Android cierra el servicio, lo vuelve a iniciar
+    }
+
+    // Cuando cambia la red (WiFi <-> datos, o vuelve la señal) se reconecta de inmediato en vez de esperar al tiempo de espera
+    private fun watchNetwork() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            var first = true
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    if (first) { first = false; return }
+                    Bus.log("La red cambió, reconectando")
+                    tunnelRef?.close()
+                }
+                override fun onLost(network: Network) {
+                    Bus.log("Se perdió la red")
+                    tunnelRef?.close()
+                }
+            }
+            cm.registerDefaultNetworkCallback(cb)
+            netCb = cb
+        } catch (_: Exception) {}
     }
 
     private fun run(cfg: Config) {
         val tunnel = SshTunnel(cfg)
+        tunnelRef = tunnel
         var proxy: ProxyServer? = null
         var delay = 2000L
+        var tick = 0
         try {
             proxy = ProxyServer(cfg.proxyPort, tunnel, cfg)
             proxy.start()
@@ -63,6 +98,7 @@ class TunnelService : Service() {
                     }
                 }
                 Thread.sleep(3000)
+                if (++tick % 3 == 0) tunnel.ping()
             }
         } catch (_: InterruptedException) {
         } catch (e: Exception) {
@@ -80,6 +116,10 @@ class TunnelService : Service() {
         worker = null
         try { wake?.release() } catch (_: Exception) {}
         wake = null
+        try { wifiLock?.release() } catch (_: Exception) {}
+        wifiLock = null
+        try { netCb?.let { (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it) } } catch (_: Exception) {}
+        netCb = null
     }
 
     override fun onDestroy() {
