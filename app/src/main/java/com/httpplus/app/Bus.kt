@@ -10,7 +10,12 @@ data class UiState(
     val connected: Boolean = false,
     val status: String = "Detenido",
     val clients: Int = 0,
-    val log: List<String> = emptyList()
+    val log: List<String> = emptyList(),
+    val upBps: Long = 0,
+    val downBps: Long = 0,
+    val upTotal: Long = 0,        // de la conexión actual
+    val downTotal: Long = 0,
+    val histVer: Int = 0          // sube cada vez que cambia el historial
 )
 
 object Bus {
@@ -21,6 +26,12 @@ object Bus {
         val line = fmt.format(Date()) + " " + msg
         state.value = state.value.let { it.copy(log = (it.log + line).takeLast(150)) }
     }
+
+    fun setStats(upBps: Long, downBps: Long, upTotal: Long, downTotal: Long) {
+        state.value = state.value.copy(upBps = upBps, downBps = downBps, upTotal = upTotal, downTotal = downTotal)
+    }
+
+    fun bumpHist() { state.value = state.value.let { it.copy(histVer = it.histVer + 1) } }
 
     fun set(running: Boolean? = null, connected: Boolean? = null, status: String? = null, clients: Int? = null) {
         state.value = state.value.let {

@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -58,6 +60,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private fun fmtDate(ms: Long): String = java.text.SimpleDateFormat("dd/MM HH:mm", java.util.Locale.getDefault()).format(java.util.Date(ms))
+
+private fun fmtDur(ms: Long): String {
+    val s = ms / 1000
+    return if (s >= 3600) "${s / 3600} h ${(s % 3600) / 60} min" else if (s >= 60) "${s / 60} min ${s % 60} s" else "$s s"
+}
+
 private fun localAddresses(): List<String> {
     val r = ArrayList<String>()
     try {
@@ -87,6 +96,30 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
         onImportedUsed()
     }
 
+    var hist by remember { mutableStateOf(History.load(ctx).sortedByDescending { it.start }) }
+    androidx.compose.runtime.LaunchedEffect(ui.histVer) { hist = History.load(ctx).sortedByDescending { it.start } }
+    var askDel by remember { mutableStateOf<Rec?>(null) }
+    var askAll by remember { mutableStateOf(false) }
+
+    askDel?.let { r ->
+        AlertDialog(
+            onDismissRequest = { askDel = null },
+            title = { Text("¿Borrar este registro?") },
+            text = { Text("${fmtDate(r.start)}  ·  ${r.host}") },
+            confirmButton = { TextButton(onClick = { History.delete(ctx, r.id); hist = History.load(ctx).sortedByDescending { it.start }; askDel = null }) { Text("Borrar") } },
+            dismissButton = { TextButton(onClick = { askDel = null }) { Text("Cancelar") } }
+        )
+    }
+    if (askAll) {
+        AlertDialog(
+            onDismissRequest = { askAll = false },
+            title = { Text("¿Borrar todo el historial?") },
+            text = { Text("Se pierden los datos de todas las conexiones anteriores.") },
+            confirmButton = { TextButton(onClick = { History.clear(ctx); hist = emptyList(); askAll = false }) { Text("Borrar todo") } },
+            dismissButton = { TextButton(onClick = { askAll = false }) { Text("Cancelar") } }
+        )
+    }
+
     val notifPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     fun current(): Config = cfg.copy(
@@ -104,6 +137,11 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
                 if (ui.running) "   · clientes: ${ui.clients}" else "",
             style = MaterialTheme.typography.titleMedium
         )
+
+        if (ui.running) {
+            Text("↑ ${fmtSpeed(ui.upBps)}     ↓ ${fmtSpeed(ui.downBps)}", style = MaterialTheme.typography.titleLarge)
+            Text("Esta conexión:  subida ${fmtBytes(ui.upTotal)}  ·  bajada ${fmtBytes(ui.downTotal)}")
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = cfg.mode == "ssl", onClick = { cfg = cfg.copy(mode = "ssl") }, label = { Text("SSH sobre SSL + SNI") })
@@ -185,6 +223,25 @@ private fun Screen(imported: Config?, onImportedUsed: () -> Unit, onWeb: () -> U
         )
         OutlinedButton(onClick = { addrs = localAddresses() }) { Text("Actualizar IP") }
         if (addrs.isEmpty()) Text("Sin red activa") else addrs.forEach { Text("$it  :  ${proxyText.ifEmpty { "8080" }}") }
+
+        Text("Historial de conexiones", style = MaterialTheme.typography.titleMedium)
+        if (hist.isEmpty()) Text("(sin registros)", style = MaterialTheme.typography.bodySmall)
+        else {
+            Text("Total: subida ${fmtBytes(hist.sumOf { it.up })}  ·  bajada ${fmtBytes(hist.sumOf { it.down })}", style = MaterialTheme.typography.bodySmall)
+            hist.forEach { r ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${fmtDate(r.start)}  ·  ${r.host}", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "↑ ${fmtBytes(r.up)}   ↓ ${fmtBytes(r.down)}   ·   " + (if (r.end == 0L) "en curso" else fmtDur(r.end - r.start)),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    TextButton(onClick = { askDel = r }) { Text("Borrar") }
+                }
+            }
+            OutlinedButton(onClick = { askAll = true }) { Text("Borrar todo el historial") }
+        }
 
         Text("Registro", style = MaterialTheme.typography.titleMedium)
         Text(ui.log.takeLast(40).joinToString("\n").ifEmpty { "(vacío)" }, style = MaterialTheme.typography.bodySmall)

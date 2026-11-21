@@ -74,17 +74,33 @@ class TunnelService : Service() {
         var proxy: ProxyServer? = null
         var delay = 2000L
         var tick = 0
+        var rec: Rec? = null
+        var baseUp = 0L; var baseDown = 0L
+        var lastUp = 0L; var lastDown = 0L; var lastT = System.currentTimeMillis()
+        fun saveRec(final: Boolean) {
+            val r = rec ?: return
+            r.up = Stats.up.get() - baseUp
+            r.down = Stats.down.get() - baseDown
+            if (final) r.end = System.currentTimeMillis()
+            History.upsert(applicationContext, r)
+            Bus.bumpHist()
+        }
         try {
             proxy = ProxyServer(cfg.proxyPort, tunnel, cfg)
             proxy.start()
             Bus.log("Proxy escuchando en el puerto ${cfg.proxyPort}")
             while (!Thread.currentThread().isInterrupted) {
                 if (!tunnel.isAlive()) {
+                    if (rec != null) { saveRec(true); rec = null; Bus.setStats(0, 0, 0, 0) }
                     Bus.set(connected = false, status = "Conectando...")
                     try {
                         Bus.log("Conectando a ${cfg.host}:${cfg.port} (${if (cfg.mode == "ssl") "SSL, SNI ${cfg.sni.ifBlank { cfg.host }}" else "SSH directo"})")
                         tunnel.connect()
                         Bus.set(connected = true, status = "Conectado")
+                        baseUp = Stats.up.get(); baseDown = Stats.down.get()
+                        lastUp = baseUp; lastDown = baseDown; lastT = System.currentTimeMillis()
+                        rec = Rec(System.currentTimeMillis(), cfg.host, System.currentTimeMillis(), 0, 0, 0)
+                        saveRec(false)
                         Bus.log("Túnel SSH conectado")
                         notify("Conectado - proxy puerto ${cfg.proxyPort}")
                         delay = 2000L
@@ -97,15 +113,26 @@ class TunnelService : Service() {
                         continue
                     }
                 }
-                Thread.sleep(3000)
-                if (++tick % 3 == 0) tunnel.ping()
+                Thread.sleep(1000)
+                tick++
+                if (tick % 9 == 0) tunnel.ping()
+                if (rec != null) {
+                    val now = System.currentTimeMillis()
+                    val u = Stats.up.get(); val d = Stats.down.get()
+                    val dt = (now - lastT).coerceAtLeast(1)
+                    Bus.setStats((u - lastUp) * 1000 / dt, (d - lastDown) * 1000 / dt, u - baseUp, d - baseDown)
+                    lastUp = u; lastDown = d; lastT = now
+                    if (tick % 10 == 0) saveRec(false)
+                }
             }
         } catch (_: InterruptedException) {
         } catch (e: Exception) {
             Bus.log("Error del proxy: ${e.message}")
         } finally {
+            saveRec(true)
             proxy?.stop()
             tunnel.close()
+            Bus.setStats(0, 0, 0, 0)
             Bus.set(running = false, connected = false, status = "Detenido", clients = 0)
             Bus.log("Detenido")
         }

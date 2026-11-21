@@ -74,17 +74,17 @@ class ProxyServer(private val port: Int, private val tunnel: SshTunnel, private 
     private fun relay(c: Socket, clientIn: InputStream, clientOut: OutputStream, conn: TunnelConn) {
         c.soTimeout = 0
         val t = Thread {
-            copy(conn.input, clientOut)
+            copy(conn.input, clientOut, Stats.down)
             try { c.shutdownOutput() } catch (_: Exception) {}
         }
         t.isDaemon = true
         t.start()
-        copy(clientIn, conn.output)
+        copy(clientIn, conn.output, Stats.up)
         conn.close()
         try { t.join(2000) } catch (_: Exception) {}
     }
 
-    private fun copy(a: InputStream, b: OutputStream) {
+    private fun copy(a: InputStream, b: OutputStream, counter: java.util.concurrent.atomic.AtomicLong) {
         val buf = ByteArray(16384)
         try {
             while (true) {
@@ -92,6 +92,7 @@ class ProxyServer(private val port: Int, private val tunnel: SshTunnel, private 
                 if (n < 0) break
                 b.write(buf, 0, n)
                 b.flush()
+                counter.addAndGet(n.toLong())
             }
         } catch (_: Exception) {}
     }
